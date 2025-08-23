@@ -16,10 +16,11 @@ public class BlackjackCasino extends JFrame {
     JLabel balanceLabel;
     JCheckBox coachModeCheck;
 
-    // Coach window
-    JFrame coachFrame;
-    JTextArea coachText;
+    // Coaching Window
+    JFrame coachingFrame;
+    JTextArea coachingText;
 
+    // --- Card class ---
     static class Card {
         String rank, suit;
         int value;
@@ -33,22 +34,35 @@ public class BlackjackCasino extends JFrame {
         }
     }
 
+    // --- Deck / Shoe class ---
     static class Deck {
         java.util.List<Card> cards = new ArrayList<>();
+        int cutCardPosition;
+
         Deck() {
             String[] suits = {"Hearts", "Diamonds", "Clubs", "Spades"};
             String[] ranks = {"2","3","4","5","6","7","8","9","10","J","Q","K","A"};
             int[] values = {2,3,4,5,6,7,8,9,10,10,10,10,11};
-            for (String suit : suits) {
-                for (int i = 0; i < ranks.length; i++) {
-                    cards.add(new Card(ranks[i], suit, values[i]));
+
+            // 6-deck shoe
+            for (int d = 0; d < 6; d++) {
+                for (String suit : suits) {
+                    for (int i = 0; i < ranks.length; i++) {
+                        cards.add(new Card(ranks[i], suit, values[i]));
+                    }
                 }
             }
             Collections.shuffle(cards);
+
+            // Cut card ~75–80% penetration
+            cutCardPosition = cards.size() - (52 + random.nextInt(26));
         }
+
         Card draw() { return cards.remove(0); }
+        boolean cutCardReached() { return cards.size() <= cutCardPosition; }
     }
 
+    // --- Hand Value ---
     static int handValue(java.util.List<Card> hand) {
         int value = 0, aces = 0;
         for (Card c : hand) {
@@ -62,6 +76,7 @@ public class BlackjackCasino extends JFrame {
         return value;
     }
 
+    // --- Constructor ---
     public BlackjackCasino() {
         setTitle("Las Vegas Blackjack");
         setSize(700, 500);
@@ -108,24 +123,7 @@ public class BlackjackCasino extends JFrame {
 
         appendLog("Welcome to Las Vegas Blackjack!\nPlace your bet and press Deal.\n", Color.BLACK);
 
-        // Coach window setup
-        coachFrame = new JFrame("Coach Advice");
-        coachText = new JTextArea(10, 20);
-        coachText.setEditable(false);
-        coachText.setFont(new Font("Monospaced", Font.PLAIN, 14));
-        coachFrame.add(new JScrollPane(coachText));
-        coachFrame.pack();
-        coachFrame.setLocation(this.getX() + this.getWidth(), this.getY());
-        coachFrame.setVisible(false);
-
-        // Checkbox listener
-        coachModeCheck.addActionListener(e -> {
-            coachFrame.setVisible(coachModeCheck.isSelected());
-            if (coachModeCheck.isSelected() && player != null && !player.isEmpty() && dealer != null && dealer.size() > 1) {
-                updateCoachAdvice();
-            }
-        });
-
+        // Buttons
         dealBtn.addActionListener(e -> startRound());
         hitBtn.addActionListener(e -> hit());
         standBtn.addActionListener(e -> stand());
@@ -133,15 +131,40 @@ public class BlackjackCasino extends JFrame {
         splitBtn.addActionListener(e -> split());
         playAgainBtn.addActionListener(e -> restartGame());
         exitBtn.addActionListener(e -> System.exit(0));
+
+        // Setup coaching window
+        setupCoachingWindow();
     }
 
+    // --- Coaching Window setup ---
+    void setupCoachingWindow() {
+        coachingFrame = new JFrame("Coaching");
+        coachingFrame.setSize(300, 200);
+        coachingText = new JTextArea();
+        coachingText.setEditable(false);
+        coachingText.setWrapStyleWord(true);
+        coachingText.setLineWrap(true);
+        coachingFrame.add(new JScrollPane(coachingText));
+        coachingFrame.setVisible(false);
+    }
+
+    void showCoachingAdvice(String advice, String explanation) {
+        coachingText.setText("Recommendation: " + advice + "\n\n" + explanation);
+        coachingFrame.setVisible(true);
+    }
+
+    // --- Start Round ---
     void startRound() {
         clearLog();
         try { bet = Double.parseDouble(betField.getText()); }
         catch (Exception e) { appendLog("Enter a valid bet.\n", Color.BLACK); return; }
         if (bet <= 0 || bet > balance) { appendLog("Invalid bet amount.\n", Color.BLACK); return; }
 
-        deck = new Deck();
+        if (deck == null || deck.cutCardReached()) {
+            deck = new Deck();
+            appendLog("New 6-deck shoe shuffled and ready!\n", Color.BLACK);
+        }
+
         player = new ArrayList<>();
         dealer = new ArrayList<>();
         player.add(deck.draw());
@@ -154,25 +177,30 @@ public class BlackjackCasino extends JFrame {
         dealBtn.setEnabled(false);
         hitBtn.setEnabled(true);
         standBtn.setEnabled(true);
-        doubleBtn.setEnabled(balance >= bet && player.size() == 2);
+        doubleBtn.setEnabled(balance >= bet * 2 && player.size() == 2);
         splitBtn.setEnabled(balance >= bet && player.size() == 2 &&
                             player.get(0).rank.equals(player.get(1).rank));
 
         printHands(true);
 
         if (coachModeCheck.isSelected() && player.size() >= 2) {
-            updateCoachAdvice();
+            String advice = getAdvancedAdvice(player, dealer.get(1));
+            String explanation = getAdviceExplanation(player, dealer.get(1), advice);
+            showCoachingAdvice(advice, explanation);
         }
     }
 
+    // --- Player Hits ---
     void hit() {
         player.add(deck.draw());
         printHands(true);
-        doubleBtn.setEnabled(balance >= bet && player.size() == 2);
+        doubleBtn.setEnabled(balance >= bet * 2 && player.size() == 2);
         splitBtn.setEnabled(balance >= bet && player.size() == 2 &&
                             player.get(0).rank.equals(player.get(1).rank));
         if (coachModeCheck.isSelected() && handValue(player) <= 21) {
-            updateCoachAdvice();
+            String advice = getAdvancedAdvice(player, dealer.get(1));
+            String explanation = getAdviceExplanation(player, dealer.get(1), advice);
+            showCoachingAdvice(advice, explanation);
         }
         if (handValue(player) > 21) {
             appendLog("You busted! Lose $" + bet + "\n", Color.BLACK);
@@ -181,6 +209,7 @@ public class BlackjackCasino extends JFrame {
         }
     }
 
+    // --- Player Stands ---
     void stand() {
         appendLog("You stand. Dealer reveals:\n", Color.BLACK);
         printHands(false);
@@ -205,12 +234,13 @@ public class BlackjackCasino extends JFrame {
         endRound();
     }
 
+    // --- Double Down ---
     void doubleDown() {
-        if (balance < bet) {
+        if (balance < bet * 2) {
             appendLog("Not enough balance to double down.\n", Color.BLACK);
             return;
         }
-        balance -= bet;
+        balance -= bet; // subtract extra bet only
         bet *= 2;
         appendLog("Double down! New bet: $" + bet + "\n", Color.BLACK);
         hit();
@@ -221,6 +251,7 @@ public class BlackjackCasino extends JFrame {
         appendLog("Split not implemented in this simplified version.\n", Color.BLACK);
     }
 
+    // --- End Round ---
     void endRound() {
         balanceLabel.setText("Balance: $" + balance);
         hitBtn.setEnabled(false);
@@ -235,6 +266,7 @@ public class BlackjackCasino extends JFrame {
         }
     }
 
+    // --- Restart Game ---
     void restartGame() {
         balance = 500.0;
         balanceLabel.setText("Balance: $" + balance);
@@ -244,6 +276,7 @@ public class BlackjackCasino extends JFrame {
         appendLog("Welcome to Las Vegas Blackjack!\nPlace your bet and press Deal.\n", Color.BLACK);
     }
 
+    // --- Coaching logic ---
     String getAdvancedAdvice(java.util.List<Card> playerHand, Card dealerUpCard) {
         int playerTotal = handValue(playerHand);
         int dealerValue = dealerUpCard.value;
@@ -270,12 +303,13 @@ public class BlackjackCasino extends JFrame {
         return "Hit";
     }
 
-    void updateCoachAdvice() {
-        if (player == null || dealer == null || dealer.size() < 2) return;
-        String advice = getAdvancedAdvice(player, dealer.get(1));
-        coachText.setText("Dealer Upcard: " + dealer.get(1) + "\n\nCoach suggests: " + advice);
+    String getAdviceExplanation(java.util.List<Card> playerHand, Card dealerUpCard, String advice) {
+        int total = handValue(playerHand);
+        return "Basic strategy recommends " + advice +
+               " on " + total + " against dealer's " + dealerUpCard;
     }
 
+    // --- Print Hands ---
     void printHands(boolean hideDealerCard) {
         StringBuilder sb = new StringBuilder();
         sb.append("======= Current Hands =======\n");
@@ -301,6 +335,7 @@ public class BlackjackCasino extends JFrame {
         appendLog(sb.toString(), Color.BLACK);
     }
 
+    // --- Helpers ---
     void appendLog(String s, Color c) {
         gameLog.setForeground(c);
         gameLog.setText(gameLog.getText() + s);
@@ -310,6 +345,7 @@ public class BlackjackCasino extends JFrame {
         gameLog.setText("");
     }
 
+    // --- Main ---
     public static void main(String[] args) {
         SwingUtilities.invokeLater(() -> {
             new BlackjackCasino().setVisible(true);
